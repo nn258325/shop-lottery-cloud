@@ -12,6 +12,11 @@ on:
     - cron: '10 2 * * 0'
     - cron: '0 15 * * *'
   workflow_dispatch:
+    inputs:
+      date:
+        description: '要拉取的日期 YYYY-MM-DD（留空=今天）'
+        required: false
+        type: string
 
 concurrency:
   group: lottery-cloud
@@ -54,7 +59,12 @@ jobs:
           head -c 400 /tmp/diag2.html || true
 
       - name: Fetch lottery & build snapshot
-        run: python cloud/main.py
+        run: |
+          if [ -n "${{ inputs.date }}" ]; then
+            python cloud/main.py --date=${{ inputs.date }}
+          else
+            python cloud/main.py
+          fi
 
       - name: Commit and push snapshot
         run: |
