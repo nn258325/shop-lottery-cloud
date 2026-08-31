@@ -1,0 +1,64 @@
+name: lottery-cloud
+
+on:
+  schedule:
+    - cron: '10 17 * * *'
+    - cron: '10 19 * * *'
+    - cron: '10 21 * * *'
+    - cron: '40 22 * * *'
+    - cron: '40 1 * * *'
+    - cron: '10 3 * * *'
+    - cron: '0 1 * * 0,2,6'
+    - cron: '10 2 * * 0'
+    - cron: '0 15 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: lottery-cloud
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      TZ: America/Costa_Rica
+      LOTTERY_USER_AGG: AGG
+      LOTTERY_USER_FENG: FENG
+      LOTTERY_PASS_AGG: ${{ secrets.LOTTERY_PASS_AGG }}
+      LOTTERY_PASS_FENG: ${{ secrets.LOTTERY_PASS_FENG }}
+      GMAIL_USER: ${{ secrets.GMAIL_USER }}
+      GMAIL_APP_PASS: ${{ secrets.GMAIL_APP_PASS }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: |
+          pip install -r cloud/requirements.txt
+          python -m playwright install chromium --with-deps
+
+      - name: Fetch lottery & build snapshot
+        run: python cloud/main.py
+
+      - name: Commit and push snapshot
+        run: |
+          git config user.name 'lottery-cloud-bot'
+          git config user.email 'lottery-cloud-bot@users.noreply.github.com'
+          git add snapshot.json
+          if git diff --cached --quiet; then
+            echo "no changes"
+          else
+            git commit -m "snapshot $(TZ=America/Costa_Rica date '+%F %H:%M')"
+            git push
+          fi
+
+      - name: Report
+        if: always()
+        run: |
+          ls -la snapshot.json 2>/dev/null || echo "no snapshot.json"
