@@ -22,6 +22,9 @@ concurrency:
   group: lottery-cloud
   cancel-in-progress: false
 
+permissions:
+  contents: write
+
 jobs:
   fetch:
     runs-on: ubuntu-latest
