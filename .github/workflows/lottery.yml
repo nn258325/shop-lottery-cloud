@@ -43,6 +43,16 @@ jobs:
           pip install -r cloud/requirements.txt
           python -m playwright install chromium --with-deps
 
+      - name: Diagnose site reachability
+        run: |
+          echo "--- curl with plain UA ---"
+          curl -sL -o /tmp/diag.html -w "HTTP %{http_code} | size %{size_download} | final %{url_effective}\n" https://dashboardtimes.com/LuckyStar/ || echo "curl failed"
+          head -c 400 /tmp/diag.html || true
+          echo ""
+          echo "--- curl with chrome UA ---"
+          curl -sL -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36" -o /tmp/diag2.html -w "HTTP %{http_code} | size %{size_download} | final %{url_effective}\n" https://dashboardtimes.com/LuckyStar/ || echo "curl2 failed"
+          head -c 400 /tmp/diag2.html || true
+
       - name: Fetch lottery & build snapshot
         run: python cloud/main.py
 
