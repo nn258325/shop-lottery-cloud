@@ -18,6 +18,7 @@ import os
 import re
 import sys
 import json
+import time
 import datetime
 
 from playwright.sync_api import sync_playwright
@@ -92,8 +93,26 @@ def parse_record(rec, date_str):
     }
 
 
-def fetch_day(user, password, date_str, timeout_ms=60000):
-    """拉取指定日期报表，返回解析后的记录列表。"""
+def fetch_day(user, password, date_str, timeout_ms=60000, retries=3):
+    """拉取指定日期报表（失败自动重试），返回解析后的记录列表。"""
+    last_err = None
+    for attempt in range(1, retries + 1):
+        try:
+            rows = _fetch_once(user, password, date_str, timeout_ms)
+            if rows is not None:
+                return rows
+        except Exception as exc:  # noqa: BLE001
+            last_err = exc
+        if attempt < retries:
+            print(f"[retry] {user} 第{attempt}次失败，5秒后重试: {str(last_err)[:200]}", file=sys.stderr)
+            time.sleep(5)
+    if last_err:
+        raise last_err
+    return []
+
+
+def _fetch_once(user, password, date_str, timeout_ms):
+    """单次拉取：登录 -> 报表 -> 解析。"""
     results = []
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
@@ -102,12 +121,15 @@ def fetch_day(user, password, date_str, timeout_ms=60000):
         try:
             # 1. 登录
             page.goto(f"{BASE_URL}/", wait_until="domcontentloaded", timeout=timeout_ms)
-            page.fill("#txtUsuario", user)
-            page.fill("#txtContrasena", password)
+            if not page.locator("#txtUsuario").count():
+                print(f"[debug] {user} 登录页无 #txtUsuario, title={page.title()}, url={page.url}", file=sys.stderr)
+            page.fill("#txtUsuario", user, timeout=45000)
+            page.fill("#txtContrasena", password, timeout=45000)
             page.click("#btnLogin")
             page.wait_for_selector("text=Bienvenido", timeout=timeout_ms)
-            # 2. 打开报表页
+            # 2. 打开报表页（页面为 JS 渲染，需等输入框出现后再操作）
             page.goto(f"{BASE_URL}/reporteordsorteo", wait_until="domcontentloaded", timeout=timeout_ms)
+            page.wait_for_selector("#txtFechaInicio", timeout=timeout_ms)
             # 3. 填日期并提交（Pickadate 只读输入框，用原生 setter 写入）
             page.evaluate(
                 """(d) => {
@@ -150,8 +172,12 @@ def fetch_day(user, password, date_str, timeout_ms=60000):
 
 
 def main():
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    date_str = args[0] if args else datetime.date.today().isoformat()
+    date_str = datetime.date.today().isoformat()
+    for a in sys.argv[1:]:
+        if a.startswith("--date="):
+            date_str = a.split("=", 1)[1]
+        elif not a.startswith("--"):
+            date_str = a
     user = os.environ.get("LOTTERY_USER", "AGG")
     password = os.environ.get("LOTTERY_PASS", "")
     if not password:
